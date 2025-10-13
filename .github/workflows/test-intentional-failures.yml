@@ -1,0 +1,56 @@
+name: Test with Intentional Failures
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */12 * * *'
+
+jobs:
+  test-failures:
+    name: Run Tests with Failures
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run failing tests
+        id: tests
+        run: |
+          npx playwright test sample-fail
+          TEST_EXIT_CODE=$?
+          echo "test-failed=$([ $TEST_EXIT_CODE -ne 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+          exit $TEST_EXIT_CODE
+        continue-on-error: true
+
+      - name: Analyze failures
+        if: steps.tests.outputs.test-failed == 'true'
+        uses: decision-crafters/playwright-failure-analyzer@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          max-failures: 10
+          issue-title: '[DEMO] Test Failures - Run #${{ github.run_number }}'
+          issue-labels: 'demo,automated,expected-failure'
+          deduplicate: false
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-failures
+          path: playwright-report/
+          retention-days: 7
