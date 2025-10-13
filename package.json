@@ -1,0 +1,22 @@
+{
+  "name": "playwright-failure-analyzer-demo",
+  "version": "1.0.0",
+  "description": "Live demonstration and testing repository for Playwright Failure Analyzer",
+  "scripts": {
+    "test": "playwright test",
+    "test:fail": "playwright test sample-fail",
+    "test:pass": "playwright test sample-pass"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "github-actions",
+    "demo",
+    "failure-analysis"
+  ],
+  "author": "Decision Crafters",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  }
+}
