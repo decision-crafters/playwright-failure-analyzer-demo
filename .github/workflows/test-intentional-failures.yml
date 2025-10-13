@@ -31,8 +31,10 @@ jobs:
       - name: Run failing tests
         id: tests
         run: |
+          set +e  # Disable exit on error to capture test exit code
           npx playwright test sample-fail
           TEST_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
           echo "test-failed=$([ $TEST_EXIT_CODE -ne 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
           exit $TEST_EXIT_CODE
         continue-on-error: true
