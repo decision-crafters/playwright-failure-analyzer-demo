@@ -57,12 +57,12 @@ jobs:
           issue-labels: 'demo,automated,ai-analyzed'
         env:
           # DeepSeek via OpenRouter (recommended - cheapest)
-          OPENROUTER_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          AI_MODEL: 'openrouter/deepseek/deepseek-chat'
+          # OPENROUTER_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # AI_MODEL: 'openrouter/deepseek/deepseek-chat'
 
           # Alternative: Direct DeepSeek API
-          # DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          # AI_MODEL: 'deepseek/deepseek-chat'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MODEL: 'deepseek/deepseek-chat'
 
           # Alternative: OpenAI
           # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
