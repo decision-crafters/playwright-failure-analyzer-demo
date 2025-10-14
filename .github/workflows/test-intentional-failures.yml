@@ -44,6 +44,7 @@ jobs:
         uses: decision-crafters/playwright-failure-analyzer@v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          report-path: 'playwright-report/results.json'
           max-failures: 10
           issue-title: '[DEMO] Test Failures - Run #${{ github.run_number }}'
           issue-labels: 'demo,automated,expected-failure'
