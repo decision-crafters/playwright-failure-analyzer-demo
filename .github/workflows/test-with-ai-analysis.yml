@@ -55,6 +55,7 @@ jobs:
           ai-analysis: true
           issue-title: '[AI-DEMO] Test Failures - Run #${{ github.run_number }}'
           issue-labels: 'demo,automated,ai-analyzed'
+          report-path: 'playwright-report/results.json'
         env:
           # DeepSeek via OpenRouter (recommended - cheapest)
           # OPENROUTER_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
