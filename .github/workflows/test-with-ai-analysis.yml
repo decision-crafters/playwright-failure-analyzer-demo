@@ -1,0 +1,77 @@
+# AI-Enabled Test Failure Analysis Workflow
+# This workflow demonstrates the Playwright Failure Analyzer with AI analysis using DeepSeek
+# Copy this file to: .github/workflows/test-with-ai-analysis.yml in the demo repository
+
+name: Test with AI Analysis (DeepSeek)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-with-ai:
+    name: Run Tests with AI Analysis
+    runs-on: ubuntu-latest
+
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run failing tests
+        id: tests
+        run: |
+          set +e  # Disable exit on error to capture test exit code
+          npx playwright test sample-fail
+          TEST_EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          echo "test-failed=$([ $TEST_EXIT_CODE -ne 0 ] && echo 'true' || echo 'false')" >> $GITHUB_OUTPUT
+          exit $TEST_EXIT_CODE
+        continue-on-error: true
+
+      - name: Analyze failures with AI
+        if: steps.tests.outputs.test-failed == 'true'
+        uses: decision-crafters/playwright-failure-analyzer@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          max-failures: 10
+          ai-analysis: true
+          issue-title: '[AI-DEMO] Test Failures - Run #${{ github.run_number }}'
+          issue-labels: 'demo,automated,ai-analyzed'
+        env:
+          # DeepSeek via OpenRouter (recommended - cheapest)
+          OPENROUTER_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MODEL: 'openrouter/deepseek/deepseek-chat'
+
+          # Alternative: Direct DeepSeek API
+          # DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # AI_MODEL: 'deepseek/deepseek-chat'
+
+          # Alternative: OpenAI
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # AI_MODEL: 'gpt-4o-mini'
+
+      - name: Upload Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-ai-demo
+          path: playwright-report/
+          retention-days: 7
