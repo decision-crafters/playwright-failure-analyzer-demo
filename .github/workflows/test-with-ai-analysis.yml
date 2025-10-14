@@ -48,7 +48,7 @@ jobs:
 
       - name: Analyze failures with AI
         if: steps.tests.outputs.test-failed == 'true'
-        uses: decision-crafters/playwright-failure-analyzer@v1
+        uses: decision-crafters/playwright-failure-analyzer@v1.0.2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           max-failures: 10
