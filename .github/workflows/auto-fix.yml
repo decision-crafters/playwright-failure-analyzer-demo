@@ -50,34 +50,61 @@ jobs:
             echo "ai_model=gpt-4o-mini" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download failures JSON from issue
-        id: download
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run tests to generate failures
+        id: tests
         run: |
-          # Get issue body
-          ISSUE_BODY=$(gh api repos/${{ github.repository }}/issues/${{ steps.issue.outputs.number }} --jq '.body')
+          set +e  # Don't exit on test failure
+          npm test
+          TEST_EXIT_CODE=$?
+          echo "exit-code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          exit 0  # Always succeed this step
+        continue-on-error: true
 
-          # Try to extract JSON from issue body
-          # Look for JSON code block or attach as artifact
-          echo "$ISSUE_BODY" | sed -n '/```json/,/```/p' | sed '1d;$d' > failures.json || echo '{"failures":[]}' > failures.json
-
-          # Check if we have valid JSON
-          if jq empty failures.json 2>/dev/null; then
-            echo "✅ Found failures JSON in issue"
-            cat failures.json | jq .
-            echo "json_found=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️  No valid failures JSON found in issue"
-            echo "json_found=false" >> $GITHUB_OUTPUT
+      - name: Check if failures exist
+        id: check_failures
+        run: |
+          if [ ! -f "playwright-report/results.json" ]; then
+            echo "❌ No test results found"
+            echo "failures_found=false" >> $GITHUB_OUTPUT
+            exit 1
           fi
 
-      - name: Check if failures JSON exists
-        if: steps.download.outputs.json_found != 'true'
+          # Check if there are actual failures in the results
+          FAILURE_COUNT=$(jq '[.suites[].specs[].tests[] | select(.status == "failed" or .status == "timedOut")] | length' playwright-report/results.json)
+
+          if [ "$FAILURE_COUNT" -eq 0 ]; then
+            echo "✅ No test failures found - nothing to fix!"
+            echo "failures_found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "📊 Found $FAILURE_COUNT test failures"
+          echo "failures_found=true" >> $GITHUB_OUTPUT
+          echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Skip if no failures
+        if: steps.check_failures.outputs.failures_found != 'true'
         run: |
-          echo "::warning::No failures JSON found in issue #${{ steps.issue.outputs.number }}"
-          echo "Please ensure the Playwright Failure Analyzer added structured failure data to the issue."
-          exit 1
+          echo "No failures to fix - exiting gracefully"
+          gh issue comment ${{ steps.issue.outputs.number }} --body "## ℹ️ No Failures Found
+
+          Re-ran tests but found no failures to fix. The tests may have been fixed already or the issue may be resolved.
+
+          🤖 Auto-Fix Workflow"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Dagger
         uses: dagger/dagger-for-github@v6
@@ -85,6 +112,7 @@ jobs:
           version: "latest"
 
       - name: Run Dagger auto-fix
+        if: steps.check_failures.outputs.failures_found == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -97,10 +125,11 @@ jobs:
           echo "🚀 Starting Dagger auto-fix..."
           echo "   Issue: #${{ steps.issue.outputs.number }}"
           echo "   Model: ${{ steps.issue.outputs.ai_model }}"
+          echo "   Failures: ${{ steps.check_failures.outputs.failure_count }}"
 
           dagger -m dagger call fix-and-create-pr \
             --repo-dir=. \
-            --failures-json-path=failures.json \
+            --failures-json-path=playwright-report/results.json \
             --issue-number=${{ steps.issue.outputs.number }} \
             --github-token=env:GITHUB_TOKEN \
             --ai-model=${{ steps.issue.outputs.ai_model }} \
@@ -111,12 +140,14 @@ jobs:
             --anthropic-api-key=env:ANTHROPIC_API_KEY \
             --deepseek-api-key=env:DEEPSEEK_API_KEY
 
-      - name: Upload failures JSON artifact
+      - name: Upload test results artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: failures-json-${{ steps.issue.outputs.number }}
-          path: failures.json
+          name: test-results-${{ steps.issue.outputs.number }}
+          path: |
+            playwright-report/
+            test-results/
           retention-days: 7
 
       - name: Comment on issue if failed
