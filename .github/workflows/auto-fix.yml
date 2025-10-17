@@ -1,0 +1,137 @@
+name: Auto-Fix Test Failures
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to fix'
+        required: true
+        type: number
+      ai_model:
+        description: 'AI model to use'
+        required: false
+        default: 'gpt-4o-mini'
+        type: choice
+        options:
+          - gpt-4o-mini
+          - gpt-4o
+          - claude-3-5-sonnet-20240620
+          - deepseek/deepseek-chat
+          - deepseek/deepseek-coder
+
+jobs:
+  attempt-auto-fix:
+    name: Attempt Auto-Fix
+    # Only run if issue has 'auto-fix-ready' label OR manual trigger
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.issue.labels.*.name, 'auto-fix-ready')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write      # To create branches and commits
+      issues: write        # To comment on issues
+      pull-requests: write # To create PRs
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get issue number
+        id: issue
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "number=${{ inputs.issue_number }}" >> $GITHUB_OUTPUT
+            echo "ai_model=${{ inputs.ai_model }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            echo "ai_model=gpt-4o-mini" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download failures JSON from issue
+        id: download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get issue body
+          ISSUE_BODY=$(gh api repos/${{ github.repository }}/issues/${{ steps.issue.outputs.number }} --jq '.body')
+
+          # Try to extract JSON from issue body
+          # Look for JSON code block or attach as artifact
+          echo "$ISSUE_BODY" | sed -n '/```json/,/```/p' | sed '1d;$d' > failures.json || echo '{"failures":[]}' > failures.json
+
+          # Check if we have valid JSON
+          if jq empty failures.json 2>/dev/null; then
+            echo "✅ Found failures JSON in issue"
+            cat failures.json | jq .
+            echo "json_found=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️  No valid failures JSON found in issue"
+            echo "json_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check if failures JSON exists
+        if: steps.download.outputs.json_found != 'true'
+        run: |
+          echo "::warning::No failures JSON found in issue #${{ steps.issue.outputs.number }}"
+          echo "Please ensure the Playwright Failure Analyzer added structured failure data to the issue."
+          exit 1
+
+      - name: Set up Dagger
+        uses: dagger/dagger-for-github@v6
+        with:
+          version: "latest"
+
+      - name: Run Dagger auto-fix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # AI API keys - at least one must be set
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          cd dagger
+
+          echo "🚀 Starting Dagger auto-fix..."
+          echo "   Issue: #${{ steps.issue.outputs.number }}"
+          echo "   Model: ${{ steps.issue.outputs.ai_model }}"
+
+          dagger call fix-and-create-pr \
+            --repo-dir=.. \
+            --failures-json-path=failures.json \
+            --issue-number=${{ steps.issue.outputs.number }} \
+            --github-token=env:GITHUB_TOKEN \
+            --ai-model=${{ steps.issue.outputs.ai_model }} \
+            --min-confidence=0.75 \
+            --repository=${{ github.repository }} \
+            --base-branch=main
+
+      - name: Upload failures JSON artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failures-json-${{ steps.issue.outputs.number }}
+          path: failures.json
+          retention-days: 7
+
+      - name: Comment on issue if failed
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment ${{ steps.issue.outputs.number }} --body "## ❌ Auto-Fix Failed
+
+          The auto-fix workflow encountered an error and could not complete.
+
+          **Troubleshooting:**
+          - Check that the issue contains valid failure JSON from the Playwright Failure Analyzer
+          - Verify that AI API keys are configured in repository secrets
+          - Review the workflow logs for detailed error messages
+
+          [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+          🤖 Auto-Fix Workflow"

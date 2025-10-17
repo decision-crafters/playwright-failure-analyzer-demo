@@ -1,0 +1,61 @@
+{
+  "run_metadata": {
+    "timestamp": "2025-10-17T14:00:00Z",
+    "total_tests": 5,
+    "passed": 0,
+    "failed": 5,
+    "playwright_version": "1.40.0"
+  },
+  "failures": [
+    {
+      "test_name": "timeout failure - element not found",
+      "file_path": "tests/sample-fail.spec.js",
+      "line_number": 6,
+      "error_message": "Timeout 2000ms exceeded waiting for locator('#non-existent-element') to be visible",
+      "error_type": "TimeoutError",
+      "stack_trace": "Error: Timeout 2000ms exceeded...",
+      "suggested_pattern": "selector_timeout",
+      "confidence": 0.85
+    },
+    {
+      "test_name": "assertion failure - wrong title",
+      "file_path": "tests/sample-fail.spec.js",
+      "line_number": 14,
+      "error_message": "Expected: 'Wrong Title Expected'\nReceived: 'Example Domain'",
+      "error_type": "AssertionError",
+      "stack_trace": "Error: expect(received).toBe(expected)...",
+      "suggested_pattern": "type_mismatch",
+      "confidence": 0.90
+    },
+    {
+      "test_name": "navigation timeout - invalid domain",
+      "file_path": "tests/sample-fail.spec.js",
+      "line_number": 18,
+      "error_message": "Navigation timeout of 3000ms exceeded",
+      "error_type": "TimeoutError",
+      "stack_trace": "TimeoutError: Navigation timeout...",
+      "suggested_pattern": "navigation_timeout",
+      "confidence": 0.80
+    },
+    {
+      "test_name": "selector not found - click failure",
+      "file_path": "tests/sample-fail.spec.js",
+      "line_number": 25,
+      "error_message": "Timeout 2000ms exceeded waiting for locator('#nonexistent-button')",
+      "error_type": "TimeoutError",
+      "stack_trace": "Error: Timeout 2000ms exceeded...",
+      "suggested_pattern": "selector_timeout",
+      "confidence": 0.85
+    },
+    {
+      "test_name": "text content mismatch",
+      "file_path": "tests/sample-fail.spec.js",
+      "line_number": 30,
+      "error_message": "Expected string: 'This Text Does Not Exist'",
+      "error_type": "AssertionError",
+      "stack_trace": "Error: expect(locator).toHaveText...",
+      "suggested_pattern": "type_mismatch",
+      "confidence": 0.88
+    }
+  ]
+}
