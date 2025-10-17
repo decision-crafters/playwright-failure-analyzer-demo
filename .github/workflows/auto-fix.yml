@@ -189,41 +189,46 @@ jobs:
           echo "   Failures: ${{ steps.check_failures.outputs.failure_count }}"
           echo "   Min Confidence: ${{ steps.params.outputs.min_confidence }}"
 
-          # Check if issue number was provided
+          # Check if issue number was provided, otherwise create a tracking issue
           ISSUE_NUMBER="${{ steps.params.outputs.issue_number }}"
 
-          if [ -n "$ISSUE_NUMBER" ]; then
-            echo "   Issue: #$ISSUE_NUMBER"
-            echo "   Creating PR if fixes are found..."
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "   No issue number provided - creating tracking issue..."
 
-            dagger -m dagger call fix-and-create-pr \
-              --repo-dir=. \
-              --failures-json-path=playwright-report/results.json \
-              --issue-number=$ISSUE_NUMBER \
-              --github-token=env:GITHUB_TOKEN \
-              --ai-model=${{ steps.params.outputs.ai_model }} \
-              --min-confidence=${{ steps.params.outputs.min_confidence }} \
-              --repository=${{ github.repository }} \
-              --base-branch=main \
-              --openai-api-key=env:OPENAI_API_KEY \
-              --anthropic-api-key=env:ANTHROPIC_API_KEY \
-              --deepseek-api-key=env:DEEPSEEK_API_KEY
-          else
-            echo "   No issue number - running attempt-fix only (no PR creation)"
+            ISSUE_NUMBER=$(gh issue create \
+              --title "Auto-fix: ${{ steps.params.outputs.difficulty }} difficulty with ${{ steps.params.outputs.ai_model }}" \
+              --label "automated-fix,playground" \
+              --body "## Auto-Fix Experiment
 
-            dagger -m dagger call attempt-fix \
-              --repo-dir=. \
-              --failures-json-path=playwright-report/results.json \
-              --ai-model=${{ steps.params.outputs.ai_model }} \
-              --min-confidence=${{ steps.params.outputs.min_confidence }} \
-              --openai-api-key=env:OPENAI_API_KEY \
-              --anthropic-api-key=env:ANTHROPIC_API_KEY \
-              --deepseek-api-key=env:DEEPSEEK_API_KEY \
-              | tee dagger-results.json
+**Configuration:**
+- Difficulty: ${{ steps.params.outputs.difficulty }}
+- AI Model: ${{ steps.params.outputs.ai_model }}
+- Min Confidence: ${{ steps.params.outputs.min_confidence }}
+- Failures Found: ${{ steps.check_failures.outputs.failure_count }}
 
-            echo "📊 Results:"
-            cat dagger-results.json | jq '.'
+This issue was created automatically to track the auto-fix workflow results.
+
+[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+              --json number --jq '.number')
+
+            echo "   Created issue: #$ISSUE_NUMBER"
           fi
+
+          echo "   Issue: #$ISSUE_NUMBER"
+          echo "   Creating PR if fixes are found..."
+
+          dagger -m dagger call fix-and-create-pr \
+            --repo-dir=. \
+            --failures-json-path=playwright-report/results.json \
+            --issue-number=$ISSUE_NUMBER \
+            --github-token=env:GITHUB_TOKEN \
+            --ai-model=${{ steps.params.outputs.ai_model }} \
+            --min-confidence=${{ steps.params.outputs.min_confidence }} \
+            --repository=${{ github.repository }} \
+            --base-branch=main \
+            --openai-api-key=env:OPENAI_API_KEY \
+            --anthropic-api-key=env:ANTHROPIC_API_KEY \
+            --deepseek-api-key=env:DEEPSEEK_API_KEY
 
       - name: Upload test results artifact
         if: always()
