@@ -195,20 +195,22 @@ jobs:
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "   No issue number provided - creating tracking issue..."
 
+            ISSUE_BODY="## Auto-Fix Experiment
+
+          **Configuration:**
+          - Difficulty: ${{ steps.params.outputs.difficulty }}
+          - AI Model: ${{ steps.params.outputs.ai_model }}
+          - Min Confidence: ${{ steps.params.outputs.min_confidence }}
+          - Failures Found: ${{ steps.check_failures.outputs.failure_count }}
+
+          This issue was created automatically to track the auto-fix workflow results.
+
+          [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
             ISSUE_NUMBER=$(gh issue create \
               --title "Auto-fix: ${{ steps.params.outputs.difficulty }} difficulty with ${{ steps.params.outputs.ai_model }}" \
               --label "automated-fix,playground" \
-              --body "## Auto-Fix Experiment
-
-**Configuration:**
-- Difficulty: ${{ steps.params.outputs.difficulty }}
-- AI Model: ${{ steps.params.outputs.ai_model }}
-- Min Confidence: ${{ steps.params.outputs.min_confidence }}
-- Failures Found: ${{ steps.check_failures.outputs.failure_count }}
-
-This issue was created automatically to track the auto-fix workflow results.
-
-[View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
+              --body "$ISSUE_BODY" \
               --json number --jq '.number')
 
             echo "   Created issue: #$ISSUE_NUMBER"
