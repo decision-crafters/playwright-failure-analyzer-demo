@@ -5,7 +5,16 @@
   "scripts": {
     "test": "playwright test",
     "test:fail": "playwright test sample-fail",
-    "test:pass": "playwright test sample-pass"
+    "test:pass": "playwright test sample-pass",
+    "test:easy": "playwright test easy-fixes",
+    "test:medium": "playwright test medium-fixes",
+    "test:hard": "playwright test hard-fixes",
+    "test:easy-solution": "playwright test solutions/easy-fixes-solution",
+    "test:medium-solution": "playwright test solutions/medium-fixes-solution",
+    "test:hard-solution": "playwright test solutions/hard-fixes-solution",
+    "test:all-difficulties": "playwright test easy-fixes medium-fixes hard-fixes",
+    "test:all-solutions": "playwright test solutions/",
+    "benchmark": "npm run test:easy && npm run test:medium && npm run test:hard"
   },
   "keywords": [
     "playwright",

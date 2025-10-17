@@ -11,6 +11,62 @@ This is a **demo repository** for the [Playwright Failure Analyzer](https://gith
 
 The repository contains intentionally failing tests to showcase the action's capabilities.
 
+## AI Model Playground
+
+This repository also serves as an **AI model benchmarking playground** with tiered test suites designed for experimentation:
+
+### Test Difficulty Tiers
+
+- **Easy (`tests/easy-fixes.spec.js`)**: 8 simple failures (90-95% expected success)
+  - Missing `await` keywords
+  - Simple selector typos
+  - Wrong assertion values
+  - Expected AI Confidence: 90-95%
+
+- **Medium (`tests/medium-fixes.spec.js`)**: 10 moderate failures (70-85% expected success)
+  - Navigation timing issues
+  - Race conditions
+  - Async pattern problems
+  - Expected AI Confidence: 70-85%
+
+- **Hard (`tests/hard-fixes.spec.js`)**: 10 complex failures (50-70% expected success)
+  - Complex state dependencies
+  - Nested async operations
+  - Error handling issues
+  - Expected AI Confidence: 50-70%
+
+### Reference Solutions
+
+All test files have corresponding solutions in `tests/solutions/` that demonstrate the correct implementations. Use these to:
+- Validate AI-generated fixes
+- Understand expected patterns
+- Verify fixes actually work
+
+### Playground Commands
+
+```bash
+# Run difficulty-tiered tests
+npm run test:easy               # Easy fixes
+npm run test:medium             # Medium fixes
+npm run test:hard               # Hard fixes
+npm run test:all-difficulties   # All tiers
+
+# Run reference solutions (should all pass)
+npm run test:easy-solution
+npm run test:medium-solution
+npm run test:hard-solution
+npm run test:all-solutions
+
+# Benchmark all difficulties
+npm run benchmark
+```
+
+See **[PLAYGROUND.md](./PLAYGROUND.md)** for comprehensive experimentation guide including:
+- Benchmarking different AI models
+- Comparing confidence scores
+- Adding custom patterns
+- Cost estimates per model
+
 ## Commands
 
 ### Running Tests

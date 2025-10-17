@@ -6,9 +6,20 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: 'Issue number to fix'
-        required: true
+        description: 'Issue number to fix (optional - will run tests if not provided)'
+        required: false
         type: number
+      difficulty:
+        description: 'Test difficulty level'
+        required: false
+        default: 'easy'
+        type: choice
+        options:
+          - easy
+          - medium
+          - hard
+          - all
+          - sample-fail
       ai_model:
         description: 'AI model to use'
         required: false
@@ -39,16 +50,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get issue number
-        id: issue
+      - name: Get workflow parameters
+        id: params
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "number=${{ inputs.issue_number }}" >> $GITHUB_OUTPUT
+            echo "issue_number=${{ inputs.issue_number }}" >> $GITHUB_OUTPUT
             echo "ai_model=${{ inputs.ai_model }}" >> $GITHUB_OUTPUT
+            echo "difficulty=${{ inputs.difficulty }}" >> $GITHUB_OUTPUT
           else
-            echo "number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
             echo "ai_model=gpt-4o-mini" >> $GITHUB_OUTPUT
+            echo "difficulty=sample-fail" >> $GITHUB_OUTPUT
           fi
+
+          # Set confidence threshold based on difficulty
+          case "${{ inputs.difficulty }}" in
+            easy)
+              echo "min_confidence=0.90" >> $GITHUB_OUTPUT
+              ;;
+            medium)
+              echo "min_confidence=0.75" >> $GITHUB_OUTPUT
+              ;;
+            hard)
+              echo "min_confidence=0.60" >> $GITHUB_OUTPUT
+              ;;
+            all)
+              echo "min_confidence=0.75" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "min_confidence=0.75" >> $GITHUB_OUTPUT
+              ;;
+          esac
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -66,7 +98,31 @@ jobs:
         id: tests
         run: |
           set +e  # Don't exit on test failure
-          npm test
+
+          DIFFICULTY="${{ steps.params.outputs.difficulty }}"
+          echo "🧪 Running tests for difficulty: $DIFFICULTY"
+
+          case "$DIFFICULTY" in
+            easy)
+              npm run test:easy
+              ;;
+            medium)
+              npm run test:medium
+              ;;
+            hard)
+              npm run test:hard
+              ;;
+            all)
+              npm run test:all-difficulties
+              ;;
+            sample-fail)
+              npm run test:fail
+              ;;
+            *)
+              npm test
+              ;;
+          esac
+
           TEST_EXIT_CODE=$?
           echo "exit-code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
           exit 0  # Always succeed this step
@@ -98,11 +154,15 @@ jobs:
         if: steps.check_failures.outputs.failures_found != 'true'
         run: |
           echo "No failures to fix - exiting gracefully"
-          gh issue comment ${{ steps.issue.outputs.number }} --body "## ℹ️ No Failures Found
 
-          Re-ran tests but found no failures to fix. The tests may have been fixed already or the issue may be resolved.
+          # Only comment on issue if issue number was provided
+          if [ -n "${{ steps.params.outputs.issue_number }}" ]; then
+            gh issue comment ${{ steps.params.outputs.issue_number }} --body "## ℹ️ No Failures Found
 
-          🤖 Auto-Fix Workflow"
+            Re-ran tests but found no failures to fix. The tests may have been fixed already or the issue may be resolved.
+
+            🤖 Auto-Fix Workflow"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -124,22 +184,46 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           echo "🚀 Starting Dagger auto-fix..."
-          echo "   Issue: #${{ steps.issue.outputs.number }}"
-          echo "   Model: ${{ steps.issue.outputs.ai_model }}"
+          echo "   Difficulty: ${{ steps.params.outputs.difficulty }}"
+          echo "   Model: ${{ steps.params.outputs.ai_model }}"
           echo "   Failures: ${{ steps.check_failures.outputs.failure_count }}"
+          echo "   Min Confidence: ${{ steps.params.outputs.min_confidence }}"
 
-          dagger -m dagger call fix-and-create-pr \
-            --repo-dir=. \
-            --failures-json-path=playwright-report/results.json \
-            --issue-number=${{ steps.issue.outputs.number }} \
-            --github-token=env:GITHUB_TOKEN \
-            --ai-model=${{ steps.issue.outputs.ai_model }} \
-            --min-confidence=0.75 \
-            --repository=${{ github.repository }} \
-            --base-branch=main \
-            --openai-api-key=env:OPENAI_API_KEY \
-            --anthropic-api-key=env:ANTHROPIC_API_KEY \
-            --deepseek-api-key=env:DEEPSEEK_API_KEY
+          # Check if issue number was provided
+          ISSUE_NUMBER="${{ steps.params.outputs.issue_number }}"
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            echo "   Issue: #$ISSUE_NUMBER"
+            echo "   Creating PR if fixes are found..."
+
+            dagger -m dagger call fix-and-create-pr \
+              --repo-dir=. \
+              --failures-json-path=playwright-report/results.json \
+              --issue-number=$ISSUE_NUMBER \
+              --github-token=env:GITHUB_TOKEN \
+              --ai-model=${{ steps.params.outputs.ai_model }} \
+              --min-confidence=${{ steps.params.outputs.min_confidence }} \
+              --repository=${{ github.repository }} \
+              --base-branch=main \
+              --openai-api-key=env:OPENAI_API_KEY \
+              --anthropic-api-key=env:ANTHROPIC_API_KEY \
+              --deepseek-api-key=env:DEEPSEEK_API_KEY
+          else
+            echo "   No issue number - running attempt-fix only (no PR creation)"
+
+            dagger -m dagger call attempt-fix \
+              --repo-dir=. \
+              --failures-json-path=playwright-report/results.json \
+              --ai-model=${{ steps.params.outputs.ai_model }} \
+              --min-confidence=${{ steps.params.outputs.min_confidence }} \
+              --openai-api-key=env:OPENAI_API_KEY \
+              --anthropic-api-key=env:ANTHROPIC_API_KEY \
+              --deepseek-api-key=env:DEEPSEEK_API_KEY \
+              | tee dagger-results.json
+
+            echo "📊 Results:"
+            cat dagger-results.json | jq '.'
+          fi
 
       - name: Upload test results artifact
         if: always()
@@ -152,17 +236,22 @@ jobs:
           retention-days: 7
 
       - name: Comment on issue if failed
-        if: failure()
+        if: failure() && steps.params.outputs.issue_number != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue comment ${{ steps.issue.outputs.number }} --body "## ❌ Auto-Fix Failed
+          gh issue comment ${{ steps.params.outputs.issue_number }} --body "## ❌ Auto-Fix Failed
 
           The auto-fix workflow encountered an error and could not complete.
 
+          **Configuration:**
+          - Difficulty: ${{ steps.params.outputs.difficulty }}
+          - Model: ${{ steps.params.outputs.ai_model }}
+          - Min Confidence: ${{ steps.params.outputs.min_confidence }}
+
           **Troubleshooting:**
-          - Check that the issue contains valid failure JSON from the Playwright Failure Analyzer
           - Verify that AI API keys are configured in repository secrets
+          - Check that tests generated valid failures
           - Review the workflow logs for detailed error messages
 
           [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})

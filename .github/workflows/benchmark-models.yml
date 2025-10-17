@@ -1,0 +1,221 @@
+name: Benchmark AI Models
+
+on:
+  workflow_dispatch:
+    inputs:
+      difficulty:
+        description: 'Test difficulty level'
+        required: true
+        type: choice
+        default: 'easy'
+        options:
+          - easy
+          - medium
+          - hard
+          - all
+      models:
+        description: 'Models to test (comma-separated)'
+        required: false
+        default: 'gpt-4o-mini,deepseek/deepseek-chat'
+        type: string
+
+jobs:
+  benchmark:
+    name: Benchmark ${{ matrix.model }} on ${{ github.event.inputs.difficulty }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model: ${{ fromJson(format('["{0}"]', join(split(github.event.inputs.models, ','), '","'))) }}
+      fail-fast: false  # Continue testing other models even if one fails
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run tests for difficulty level
+        id: tests
+        run: |
+          case "${{ github.event.inputs.difficulty }}" in
+            easy)
+              npm run test:easy
+              ;;
+            medium)
+              npm run test:medium
+              ;;
+            hard)
+              npm run test:hard
+              ;;
+            all)
+              npm run test:all-difficulties
+              ;;
+          esac
+        continue-on-error: true
+
+      - name: Set up Dagger
+        uses: dagger/dagger-for-github@v6
+        with:
+          version: "latest"
+          verb: ""
+
+      - name: Run Dagger auto-fix benchmark
+        id: benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          echo "🚀 Benchmarking ${{ matrix.model }} on ${{ github.event.inputs.difficulty }} difficulty"
+
+          # Determine confidence threshold based on difficulty
+          case "${{ github.event.inputs.difficulty }}" in
+            easy)
+              MIN_CONFIDENCE=0.90
+              ;;
+            medium)
+              MIN_CONFIDENCE=0.75
+              ;;
+            hard)
+              MIN_CONFIDENCE=0.60
+              ;;
+            all)
+              MIN_CONFIDENCE=0.75
+              ;;
+          esac
+
+          echo "Using confidence threshold: $MIN_CONFIDENCE"
+
+          # Run Dagger fix attempt
+          dagger -m dagger call attempt-fix \
+            --repo-dir=. \
+            --failures-json-path=playwright-report/results.json \
+            --ai-model="${{ matrix.model }}" \
+            --min-confidence=$MIN_CONFIDENCE \
+            --openai-api-key=env:OPENAI_API_KEY \
+            --anthropic-api-key=env:ANTHROPIC_API_KEY \
+            --deepseek-api-key=env:DEEPSEEK_API_KEY \
+            > benchmark-result.json
+
+          # Extract metrics
+          echo "📊 Results:"
+          cat benchmark-result.json | jq '{
+            model: .model,
+            difficulty: "${{ github.event.inputs.difficulty }}",
+            total_failures: .total_failures,
+            fixes_generated: .fixes_generated,
+            success_rate: (.fixes_generated / .total_failures * 100),
+            average_confidence: .average_confidence,
+            threshold: .threshold
+          }'
+
+          # Save metrics for artifact
+          cat benchmark-result.json | jq '{
+            model: .model,
+            difficulty: "${{ github.event.inputs.difficulty }}",
+            total_failures: .total_failures,
+            fixes_generated: .fixes_generated,
+            success_rate: (.fixes_generated / .total_failures * 100),
+            average_confidence: .average_confidence,
+            threshold: .threshold,
+            timestamp: now | todate
+          }' > benchmark-metrics.json
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.model }}-${{ github.event.inputs.difficulty }}-${{ github.run_number }}
+          path: |
+            benchmark-result.json
+            benchmark-metrics.json
+            playwright-report/
+          retention-days: 30
+
+      - name: Comment results on latest issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get latest open issue (or create benchmark tracking issue)
+          ISSUE_NUMBER=$(gh issue list --label "benchmark" --limit 1 --json number --jq '.[0].number')
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+            # Create benchmark tracking issue if none exists
+            ISSUE_NUMBER=$(gh issue create \
+              --title "AI Model Benchmark Results" \
+              --label "benchmark" \
+              --body "This issue tracks benchmark results from automated model comparisons." \
+              --json number --jq '.number')
+          fi
+
+          # Format results
+          METRICS=$(cat benchmark-metrics.json | jq -r '
+            "## Benchmark Results: \(.model) - \(.difficulty)\n\n" +
+            "- **Total Failures:** \(.total_failures)\n" +
+            "- **Fixes Generated:** \(.fixes_generated)\n" +
+            "- **Success Rate:** \(.success_rate | tonumber | floor)%\n" +
+            "- **Average Confidence:** \(.average_confidence * 100 | floor)%\n" +
+            "- **Threshold:** \(.threshold * 100 | floor)%\n" +
+            "- **Timestamp:** \(.timestamp)\n\n" +
+            "[View full results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          ')
+
+          gh issue comment $ISSUE_NUMBER --body "$METRICS"
+
+  summary:
+    name: Benchmark Summary
+    runs-on: ubuntu-latest
+    needs: benchmark
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: benchmark-results/
+
+      - name: Generate comparison report
+        run: |
+          echo "# AI Model Benchmark Comparison" > benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "**Difficulty:** ${{ github.event.inputs.difficulty }}" >> benchmark-summary.md
+          echo "**Models:** ${{ github.event.inputs.models }}" >> benchmark-summary.md
+          echo "**Run:** ${{ github.run_number }}" >> benchmark-summary.md
+          echo "" >> benchmark-summary.md
+          echo "## Results" >> benchmark-summary.md
+          echo "" >> benchmark-summary.md
+
+          # Create comparison table
+          echo "| Model | Failures | Fixes | Success Rate | Avg Confidence |" >> benchmark-summary.md
+          echo "|-------|----------|-------|--------------|----------------|" >> benchmark-summary.md
+
+          # Process each benchmark result
+          for dir in benchmark-results/*; do
+            if [ -f "$dir/benchmark-metrics.json" ]; then
+              jq -r '[.model, .total_failures, .fixes_generated, (.success_rate | tonumber | floor | tostring + "%"), (.average_confidence * 100 | floor | tostring + "%")] | "| " + join(" | ") + " |"' "$dir/benchmark-metrics.json" >> benchmark-summary.md
+            fi
+          done
+
+          cat benchmark-summary.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-summary-${{ github.run_number }}
+          path: benchmark-summary.md
+          retention-days: 90
