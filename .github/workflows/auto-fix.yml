@@ -110,6 +110,7 @@ jobs:
         uses: dagger/dagger-for-github@v6
         with:
           version: "latest"
+          verb: ""  # Don't run dagger automatically, we'll run it in the next step
 
       - name: Run Dagger auto-fix
         if: steps.check_failures.outputs.failures_found == 'true'
