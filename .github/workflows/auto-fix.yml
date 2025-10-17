@@ -94,15 +94,13 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          cd dagger
-
           echo "🚀 Starting Dagger auto-fix..."
           echo "   Issue: #${{ steps.issue.outputs.number }}"
           echo "   Model: ${{ steps.issue.outputs.ai_model }}"
 
-          dagger call fix-and-create-pr \
-            --repo-dir=.. \
-            --failures-json-path=../failures.json \
+          dagger -m dagger call fix-and-create-pr \
+            --repo-dir=. \
+            --failures-json-path=failures.json \
             --issue-number=${{ steps.issue.outputs.number }} \
             --github-token=env:GITHUB_TOKEN \
             --ai-model=${{ steps.issue.outputs.ai_model }} \
