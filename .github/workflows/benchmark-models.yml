@@ -13,19 +13,16 @@ on:
           - medium
           - hard
           - all
-      models:
-        description: 'Models to test (comma-separated)'
-        required: false
-        default: 'gpt-4o-mini,deepseek/deepseek-chat'
-        type: string
 
 jobs:
   benchmark:
-    name: Benchmark ${{ matrix.model }} on ${{ github.event.inputs.difficulty }}
+    name: Benchmark AI Models
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        model: ${{ fromJson(format('["{0}"]', join(split(github.event.inputs.models, ','), '","'))) }}
+        model:
+          - gpt-4o-mini
+          - deepseek/deepseek-chat
       fail-fast: false  # Continue testing other models even if one fails
 
     permissions:
