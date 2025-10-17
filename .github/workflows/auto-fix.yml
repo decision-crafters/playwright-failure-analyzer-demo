@@ -102,13 +102,16 @@ jobs:
 
           dagger call fix-and-create-pr \
             --repo-dir=.. \
-            --failures-json-path=failures.json \
+            --failures-json-path=../failures.json \
             --issue-number=${{ steps.issue.outputs.number }} \
             --github-token=env:GITHUB_TOKEN \
             --ai-model=${{ steps.issue.outputs.ai_model }} \
             --min-confidence=0.75 \
             --repository=${{ github.repository }} \
-            --base-branch=main
+            --base-branch=main \
+            --openai-api-key=env:OPENAI_API_KEY \
+            --anthropic-api-key=env:ANTHROPIC_API_KEY \
+            --deepseek-api-key=env:DEEPSEEK_API_KEY
 
       - name: Upload failures JSON artifact
         if: always()
