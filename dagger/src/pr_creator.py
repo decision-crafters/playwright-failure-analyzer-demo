@@ -164,32 +164,77 @@ class PRCreator:
             response.raise_for_status()
             base_tree_sha = response.json()["tree"]["sha"]
 
-            # Create blobs for each file
-            tree_items = []
+            # Group fixes by file path
+            fixes_by_file = {}
             for fix in fixes:
                 file_path = fix.get("file")
-                fixed_code = fix.get("fix")
+                if file_path:
+                    if file_path not in fixes_by_file:
+                        fixes_by_file[file_path] = []
+                    fixes_by_file[file_path].append(fix)
 
-                if file_path and fixed_code:
-                    print(f"   Creating blob for {file_path}")
+            print(f"   Processing {len(fixes_by_file)} unique file(s)")
 
-                    # Create blob
-                    blob_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/blobs"
-                    blob_payload = {
-                        "content": fixed_code,
-                        "encoding": "utf-8",
-                    }
-                    response = requests.post(blob_url, headers=self.headers, json=blob_payload)
-                    response.raise_for_status()
-                    blob_sha = response.json()["sha"]
+            # Create blobs for each unique file
+            tree_items = []
+            for file_path, file_fixes in fixes_by_file.items():
+                print(f"   Applying {len(file_fixes)} fix(es) to {file_path}")
 
-                    # Add to tree
-                    tree_items.append({
-                        "path": file_path,
-                        "mode": "100644",  # Regular file
-                        "type": "blob",
-                        "sha": blob_sha,
-                    })
+                # Fetch original file content from base branch
+                file_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/contents/{file_path}"
+                params = {"ref": base_branch}
+                response = requests.get(file_url, headers=self.headers, params=params)
+                response.raise_for_status()
+
+                file_data = response.json()
+                original_content = base64.b64decode(file_data["content"]).decode("utf-8")
+                original_lines = original_content.splitlines(keepends=True)
+
+                # Sort fixes by line number (descending) to avoid offset issues
+                sorted_fixes = sorted(file_fixes, key=lambda f: f.get("line_number", 0), reverse=True)
+
+                # Apply each fix
+                modified_lines = original_lines.copy()
+                for fix in sorted_fixes:
+                    line_number = fix.get("line_number")
+                    fixed_code = fix.get("fix")
+
+                    if line_number and fixed_code:
+                        # Convert to 0-based index
+                        line_index = line_number - 1
+
+                        if 0 <= line_index < len(modified_lines):
+                            # Replace the line with the fixed code
+                            # Preserve newline if original had one
+                            if not fixed_code.endswith('\n') and modified_lines[line_index].endswith('\n'):
+                                fixed_code += '\n'
+                            modified_lines[line_index] = fixed_code
+                            print(f"      Applied fix at line {line_number}")
+                        else:
+                            print(f"      ⚠️  Line {line_number} out of range (file has {len(modified_lines)} lines)")
+
+                # Join modified lines back into file content
+                fixed_content = "".join(modified_lines)
+
+                # Create blob for the fixed file
+                blob_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/blobs"
+                blob_payload = {
+                    "content": fixed_content,
+                    "encoding": "utf-8",
+                }
+                response = requests.post(blob_url, headers=self.headers, json=blob_payload)
+                response.raise_for_status()
+                blob_sha = response.json()["sha"]
+
+                # Add to tree
+                tree_items.append({
+                    "path": file_path,
+                    "mode": "100644",  # Regular file
+                    "type": "blob",
+                    "sha": blob_sha,
+                })
+
+                print(f"   ✅ Created blob for {file_path}")
 
             # Create new tree
             print(f"   Creating tree with {len(tree_items)} file(s)")
