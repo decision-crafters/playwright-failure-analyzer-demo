@@ -138,7 +138,8 @@ jobs:
           fi
 
           # Check if there are actual failures in the results
-          FAILURE_COUNT=$(jq '[.suites[].specs[].tests[] | select(.status == "failed" or .status == "timedOut")] | length' playwright-report/results.json)
+          # Use stats.unexpected which counts all unexpected test failures
+          FAILURE_COUNT=$(jq '.stats.unexpected // 0' playwright-report/results.json)
 
           if [ "$FAILURE_COUNT" -eq 0 ]; then
             echo "✅ No test failures found - nothing to fix!"
