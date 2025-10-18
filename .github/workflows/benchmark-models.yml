@@ -21,8 +21,13 @@ jobs:
     strategy:
       matrix:
         model:
+          - claude-sonnet-4.5-20250929
+          - claude-opus-4-20250522
+          - gpt-5-codex
+          - o3-mini
+          - codex-mini-latest
+          - deepseek-r1
           - gpt-4o-mini
-          - deepseek/deepseek-chat
       fail-fast: false  # Continue testing other models even if one fails
 
     permissions:
@@ -191,7 +196,7 @@ jobs:
           echo "# AI Model Benchmark Comparison" > benchmark-summary.md
           echo "" >> benchmark-summary.md
           echo "**Difficulty:** ${{ github.event.inputs.difficulty }}" >> benchmark-summary.md
-          echo "**Models:** gpt-4o-mini, deepseek/deepseek-chat" >> benchmark-summary.md
+          echo "**Models:** claude-sonnet-4.5, claude-opus-4, gpt-5-codex, o3-mini, codex-mini, deepseek-r1, gpt-4o-mini" >> benchmark-summary.md
           echo "**Run:** ${{ github.run_number }}" >> benchmark-summary.md
           echo "" >> benchmark-summary.md
           echo "## Results" >> benchmark-summary.md

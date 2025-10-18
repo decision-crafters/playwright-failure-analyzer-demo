@@ -23,9 +23,15 @@ on:
       ai_model:
         description: 'AI model to use'
         required: false
-        default: 'gpt-4o-mini'
+        default: 'claude-sonnet-4.5-20250929'
         type: choice
         options:
+          - claude-sonnet-4.5-20250929
+          - claude-opus-4-20250522
+          - gpt-5-codex
+          - o3-mini
+          - codex-mini-latest
+          - deepseek-r1
           - gpt-4o-mini
           - gpt-4o
           - claude-3-5-sonnet-20240620
