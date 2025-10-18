@@ -157,6 +157,16 @@ jobs:
           echo "failures_found=true" >> $GITHUB_OUTPUT
           echo "failure_count=$FAILURE_COUNT" >> $GITHUB_OUTPUT
 
+      - name: Transform failures to structured format
+        if: steps.check_failures.outputs.failures_found == 'true'
+        run: |
+          echo "🔄 Transforming Playwright results to structured failures format..."
+          node scripts/transform-playwright-results.js \
+            playwright-report/results.json \
+            playwright-report/structured-failures.json
+
+          echo "✅ Transformation complete"
+
       - name: Skip if no failures
         if: steps.check_failures.outputs.failures_found != 'true'
         run: |
@@ -219,7 +229,7 @@ jobs:
 
           dagger -m dagger call fix-and-create-pr \
             --repo-dir=. \
-            --failures-json-path=playwright-report/results.json \
+            --failures-json-path=playwright-report/structured-failures.json \
             --issue-number=$ISSUE_NUMBER \
             --github-token=env:GITHUB_TOKEN \
             --ai-model=${{ steps.params.outputs.ai_model }} \
