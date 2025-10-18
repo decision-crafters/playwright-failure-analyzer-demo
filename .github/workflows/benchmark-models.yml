@@ -191,7 +191,7 @@ jobs:
           echo "# AI Model Benchmark Comparison" > benchmark-summary.md
           echo "" >> benchmark-summary.md
           echo "**Difficulty:** ${{ github.event.inputs.difficulty }}" >> benchmark-summary.md
-          echo "**Models:** ${{ github.event.inputs.models }}" >> benchmark-summary.md
+          echo "**Models:** gpt-4o-mini, deepseek/deepseek-chat" >> benchmark-summary.md
           echo "**Run:** ${{ github.run_number }}" >> benchmark-summary.md
           echo "" >> benchmark-summary.md
           echo "## Results" >> benchmark-summary.md
