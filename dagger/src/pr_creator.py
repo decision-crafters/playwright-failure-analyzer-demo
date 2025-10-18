@@ -1,13 +1,14 @@
-"""GitHub PR creation for auto-fixes."""
+"""GitHub PR creation for auto-fixes using GitHub REST API."""
 
-import os
-import subprocess
+import base64
+import json
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import requests
 
 
 class PRCreator:
-    """Creates GitHub PRs with auto-fixes."""
+    """Creates GitHub PRs with auto-fixes using GitHub REST API."""
 
     def __init__(self, token: str, repository: str):
         """
@@ -20,6 +21,12 @@ class PRCreator:
         self.token = token
         self.repository = repository
         self.owner, self.repo = repository.split('/')
+        self.api_base = "https://api.github.com"
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+        }
 
     def create_pr(
         self,
@@ -53,54 +60,56 @@ class PRCreator:
         title = self._format_pr_title(issue_number, fixes)
         body = self._format_pr_body(fixes, issue_number, confidence)
 
-        # Build gh CLI command
-        cmd = [
-            "gh", "pr", "create",
-            "--title", title,
-            "--body", body,
-            "--head", branch_name,
-            "--base", base_branch,
-            "--repo", self.repository,
-        ]
-
-        # Add labels
-        cmd.extend(["--label", "automated-fix"])
-        cmd.extend(["--label", "needs-review"])
-
-        # Check if should be draft based on confidence
-        if draft or confidence < 0.90:
-            cmd.append("--draft")
+        # Determine if should be draft
+        is_draft = draft or confidence < 0.90
+        if is_draft:
             print(f"   Creating as DRAFT PR (confidence < 90%)")
 
-        # Set environment with token
-        env = os.environ.copy()
-        env['GH_TOKEN'] = self.token
-
         try:
-            print(f"🚀 Running: gh pr create...")
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env,
-            )
+            print(f"🚀 Creating PR via GitHub API...")
 
-            pr_url = result.stdout.strip()
+            # Create PR
+            url = f"{self.api_base}/repos/{self.owner}/{self.repo}/pulls"
+            payload = {
+                "title": title,
+                "body": body,
+                "head": branch_name,
+                "base": base_branch,
+                "draft": is_draft,
+            }
+
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+
+            pr_data = response.json()
+            pr_url = pr_data["html_url"]
+            pr_number = pr_data["number"]
+
             print(f"✅ PR created: {pr_url}")
+
+            # Add labels
+            self._add_labels_to_pr(pr_number, ["automated-fix", "needs-review"])
 
             return {
                 "success": True,
                 "pr_url": pr_url,
+                "pr_number": pr_number,
                 "branch": branch_name,
                 "issue_number": issue_number,
                 "fixes_count": len(fixes),
                 "confidence": confidence,
-                "is_draft": draft or confidence < 0.90,
+                "is_draft": is_draft,
             }
 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr if e.stderr else str(e)
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get('message', error_msg)
+                except:
+                    error_msg = e.response.text or error_msg
+
             print(f"❌ Failed to create PR: {error_msg}")
 
             return {
@@ -117,7 +126,7 @@ class PRCreator:
         base_branch: str = "main",
     ) -> Dict[str, Any]:
         """
-        Create a branch and commit fixes.
+        Create a branch and commit fixes using GitHub API.
 
         Args:
             fixes: List of fix dicts
@@ -127,67 +136,114 @@ class PRCreator:
         Returns:
             Dict with success status and details
         """
-        env = os.environ.copy()
-        env['GH_TOKEN'] = self.token
-
         try:
-            # Create and checkout new branch
             print(f"🌿 Creating branch: {branch_name}")
-            subprocess.run(
-                ["git", "checkout", "-b", branch_name, base_branch],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
 
-            # Apply each fix
+            # Get the base branch SHA
+            ref_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/refs/heads/{base_branch}"
+            response = requests.get(ref_url, headers=self.headers)
+            response.raise_for_status()
+            base_sha = response.json()["object"]["sha"]
+
+            print(f"   Base SHA: {base_sha[:7]}")
+
+            # Create new branch reference
+            create_ref_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/refs"
+            payload = {
+                "ref": f"refs/heads/{branch_name}",
+                "sha": base_sha,
+            }
+            response = requests.post(create_ref_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+
+            print(f"✅ Branch created")
+
+            # Get the base tree
+            commit_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/commits/{base_sha}"
+            response = requests.get(commit_url, headers=self.headers)
+            response.raise_for_status()
+            base_tree_sha = response.json()["tree"]["sha"]
+
+            # Create blobs for each file
+            tree_items = []
             for fix in fixes:
                 file_path = fix.get("file")
                 fixed_code = fix.get("fix")
 
                 if file_path and fixed_code:
-                    print(f"   Writing fix to {file_path}")
-                    with open(file_path, 'w') as f:
-                        f.write(fixed_code)
+                    print(f"   Creating blob for {file_path}")
 
-                    # Stage the file
-                    subprocess.run(
-                        ["git", "add", file_path],
-                        check=True,
-                        capture_output=True,
-                        env=env,
-                    )
+                    # Create blob
+                    blob_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/blobs"
+                    blob_payload = {
+                        "content": fixed_code,
+                        "encoding": "utf-8",
+                    }
+                    response = requests.post(blob_url, headers=self.headers, json=blob_payload)
+                    response.raise_for_status()
+                    blob_sha = response.json()["sha"]
+
+                    # Add to tree
+                    tree_items.append({
+                        "path": file_path,
+                        "mode": "100644",  # Regular file
+                        "type": "blob",
+                        "sha": blob_sha,
+                    })
+
+            # Create new tree
+            print(f"   Creating tree with {len(tree_items)} file(s)")
+            tree_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/trees"
+            tree_payload = {
+                "base_tree": base_tree_sha,
+                "tree": tree_items,
+            }
+            response = requests.post(tree_url, headers=self.headers, json=tree_payload)
+            response.raise_for_status()
+            new_tree_sha = response.json()["sha"]
 
             # Create commit
             commit_message = self._format_commit_message(fixes)
-            print(f"💾 Committing changes...")
+            print(f"💾 Creating commit...")
 
-            subprocess.run(
-                ["git", "commit", "-m", commit_message],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
+            commit_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/commits"
+            commit_payload = {
+                "message": commit_message,
+                "tree": new_tree_sha,
+                "parents": [base_sha],
+            }
+            response = requests.post(commit_url, headers=self.headers, json=commit_payload)
+            response.raise_for_status()
+            new_commit_sha = response.json()["sha"]
 
-            # Push branch
-            print(f"📤 Pushing to remote...")
-            subprocess.run(
-                ["git", "push", "-u", "origin", branch_name],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
+            # Update branch reference to point to new commit
+            print(f"📤 Updating branch reference...")
+            update_ref_url = f"{self.api_base}/repos/{self.owner}/{self.repo}/git/refs/heads/{branch_name}"
+            update_payload = {
+                "sha": new_commit_sha,
+                "force": False,
+            }
+            response = requests.patch(update_ref_url, headers=self.headers, json=update_payload)
+            response.raise_for_status()
 
-            print(f"✅ Branch created and pushed")
+            print(f"✅ Branch created and committed")
 
             return {
                 "success": True,
                 "branch": branch_name,
+                "commit_sha": new_commit_sha,
                 "files_modified": len(fixes),
             }
 
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr.decode() if e.stderr else str(e)
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get('message', error_msg)
+                except:
+                    error_msg = e.response.text or error_msg
+
             print(f"❌ Failed to create branch: {error_msg}")
 
             return {
@@ -215,30 +271,59 @@ class PRCreator:
         Returns:
             True if comment added successfully
         """
-        env = os.environ.copy()
-        env['GH_TOKEN'] = self.token
-
         comment = self._format_issue_comment(fixes, confidence)
 
         try:
             print(f"💬 Adding comment to issue #{issue_number}")
 
-            subprocess.run(
-                [
-                    "gh", "issue", "comment", str(issue_number),
-                    "--body", comment,
-                    "--repo", self.repository,
-                ],
-                check=True,
-                capture_output=True,
-                env=env,
-            )
+            url = f"{self.api_base}/repos/{self.owner}/{self.repo}/issues/{issue_number}/comments"
+            payload = {
+                "body": comment,
+            }
+
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
 
             print(f"✅ Comment added")
             return True
 
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to add comment: {e.stderr}")
+        except requests.exceptions.RequestException as e:
+            error_msg = str(e)
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get('message', error_msg)
+                except:
+                    pass
+
+            print(f"❌ Failed to add comment: {error_msg}")
+            return False
+
+    def _add_labels_to_pr(self, pr_number: int, labels: List[str]) -> bool:
+        """
+        Add labels to a PR.
+
+        Args:
+            pr_number: PR number
+            labels: List of label names
+
+        Returns:
+            True if labels added successfully
+        """
+        try:
+            url = f"{self.api_base}/repos/{self.owner}/{self.repo}/issues/{pr_number}/labels"
+            payload = {
+                "labels": labels,
+            }
+
+            response = requests.post(url, headers=self.headers, json=payload)
+            response.raise_for_status()
+
+            print(f"   Added labels: {', '.join(labels)}")
+            return True
+
+        except requests.exceptions.RequestException as e:
+            print(f"⚠️  Failed to add labels (non-critical): {e}")
             return False
 
     def _format_pr_title(self, issue_number: int, fixes: List[Dict[str, Any]]) -> str:
@@ -406,7 +491,9 @@ class PRCreator:
         ]
 
         for fix in fixes:
-            file_name = os.path.basename(fix.get("file", "unknown"))
+            # Extract just filename from path
+            file_path = fix.get("file", "unknown")
+            file_name = file_path.split('/')[-1] if '/' in file_path else file_path
             pattern = fix.get("pattern", "unknown").replace("_", " ")
             lines.append(f"- {file_name}: {pattern}")
 
