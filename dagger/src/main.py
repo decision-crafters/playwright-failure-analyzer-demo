@@ -312,7 +312,25 @@ class PlaywrightAutoFixer:
 
             print(f"🌿 Branch: {branch_name}")
 
-            # Create PR
+            # First, create branch and commit fixes
+            branch_result = pr_creator.create_branch_and_commit(
+                fixes=fixes,
+                branch_name=branch_name,
+                base_branch=base_branch,
+            )
+
+            if not branch_result.get("success"):
+                print(f"❌ Failed to create branch")
+                return json.dumps({
+                    "status": "branch_failed",
+                    "error": branch_result.get("error", "Unknown error"),
+                    "issue_number": issue_number,
+                    "fixes_count": len(fixes),
+                }, indent=2)
+
+            print(f"✅ Branch created and fixes committed")
+
+            # Now create PR
             is_draft = (top_recommendation == "CREATE_DRAFT_PR" or overall_confidence < 0.90)
 
             pr_result = pr_creator.create_pr(
