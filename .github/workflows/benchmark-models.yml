@@ -69,6 +69,14 @@ jobs:
           esac
         continue-on-error: true
 
+      - name: Transform failures to structured format
+        run: |
+          echo "🔄 Transforming Playwright results to structured failures format..."
+          node scripts/transform-playwright-results.js \
+            playwright-report/results.json \
+            playwright-report/structured-failures.json
+          echo "✅ Transformation complete"
+
       - name: Set up Dagger
         uses: dagger/dagger-for-github@v6
         with:
@@ -106,7 +114,7 @@ jobs:
           # Run Dagger fix attempt
           dagger -m dagger call attempt-fix \
             --repo-dir=. \
-            --failures-json-path=playwright-report/results.json \
+            --failures-json-path=playwright-report/structured-failures.json \
             --ai-model="${{ matrix.model }}" \
             --min-confidence=$MIN_CONFIDENCE \
             --openai-api-key=env:OPENAI_API_KEY \
