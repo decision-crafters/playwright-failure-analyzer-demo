@@ -72,7 +72,16 @@ function traverseSuites(suites, filepath = '') {
     // Process specs
     if (suite.specs) {
       for (const spec of suite.specs) {
-        const specFile = spec.file || filepath;
+        // Convert absolute path to relative path from repo root
+        let specFile = spec.file || filepath;
+
+        // If it's an absolute path, extract the relative portion
+        if (specFile.includes('/tests/')) {
+          specFile = specFile.substring(specFile.indexOf('/tests/') + 1);
+        } else if (specFile.includes('\\tests\\')) {
+          // Handle Windows paths
+          specFile = specFile.substring(specFile.indexOf('\\tests\\') + 1).replace(/\\/g, '/');
+        }
 
         for (const test of spec.tests || []) {
           // Only process unexpected (failed/timed out) tests
@@ -85,11 +94,25 @@ function traverseSuites(suites, filepath = '') {
             const errorType = result.error?.name || 'Error';
             const stackTrace = result.error?.stack || '';
 
-            // Try to extract line number from stack trace
-            let lineNumber = null;
-            const lineMatch = stackTrace.match(/\.spec\.[jt]s:(\d+):/);
-            if (lineMatch) {
-              lineNumber = parseInt(lineMatch[1], 10);
+            // Get file path from error location (has full path) or spec.file
+            let filePath = specFile;
+            if (result.error?.location?.file) {
+              filePath = result.error.location.file;
+              // Convert absolute path to relative path from repo root
+              if (filePath.includes('/tests/')) {
+                filePath = filePath.substring(filePath.indexOf('/tests/') + 1);
+              } else if (filePath.includes('\\tests\\')) {
+                filePath = filePath.substring(filePath.indexOf('\\tests\\') + 1).replace(/\\/g, '/');
+              }
+            }
+
+            // Try to extract line number from error location or stack trace
+            let lineNumber = result.error?.location?.line || null;
+            if (!lineNumber) {
+              const lineMatch = stackTrace.match(/\.spec\.[jt]s:(\d+):/);
+              if (lineMatch) {
+                lineNumber = parseInt(lineMatch[1], 10);
+              }
             }
 
             const pattern = detectPattern(errorMessage, errorType);
@@ -97,7 +120,7 @@ function traverseSuites(suites, filepath = '') {
 
             failures.push({
               test_name: spec.title || test.title || 'Unknown test',
-              file_path: specFile,
+              file_path: filePath,
               line_number: lineNumber,
               error_message: errorMessage.substring(0, 500), // Truncate long messages
               error_type: errorType,
