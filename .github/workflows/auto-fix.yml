@@ -196,11 +196,14 @@ jobs:
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "   No issue number provided - creating tracking issue..."
 
-            ISSUE_NUMBER=$(gh issue create \
+            # Create issue and extract number from URL
+            ISSUE_URL=$(gh issue create \
               --title "Auto-fix: ${{ steps.params.outputs.difficulty }} difficulty with ${{ steps.params.outputs.ai_model }}" \
               --label "automated-fix,playground" \
-              --body "Auto-Fix Experiment - Difficulty: ${{ steps.params.outputs.difficulty }}, Model: ${{ steps.params.outputs.ai_model }}, Min Confidence: ${{ steps.params.outputs.min_confidence }}, Failures: ${{ steps.check_failures.outputs.failure_count }}. [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" \
-              --json number --jq '.number')
+              --body "Auto-Fix Experiment - Difficulty: ${{ steps.params.outputs.difficulty }}, Model: ${{ steps.params.outputs.ai_model }}, Min Confidence: ${{ steps.params.outputs.min_confidence }}, Failures: ${{ steps.check_failures.outputs.failure_count }}. [View run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})")
+
+            # Extract issue number from URL (format: https://github.com/owner/repo/issues/123)
+            ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '/issues/\K\d+')
 
             echo "   Created issue: #$ISSUE_NUMBER"
           fi
